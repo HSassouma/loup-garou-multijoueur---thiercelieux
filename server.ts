@@ -13,7 +13,7 @@ import {
 } from './src/game/rules.ts';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
@@ -965,6 +965,7 @@ app.get('/api/rooms/:code/stream', (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
   const playerId = req.query.playerId as string | undefined;
@@ -985,20 +986,26 @@ app.get('/api/rooms/:code/stream', (req: Request, res: Response) => {
   }
   sseClients[code].add(client);
 
-  // If a player connects, mark online
-  if (room && playerId && room.players[playerId]) {
-    room.players[playerId].isConnected = true;
-    room.players[playerId].lastActiveAt = Date.now();
-    broadcastRoom(code);
-  }
+  // Heartbeat ping every 25 seconds (configurable via env) to keep connection alive through reverse proxies (e.g. Render/Nginx).
+  // The SSE standard defines lines starting with ':' as comments, ignored by EventSource.
+  const HEARTBEAT_INTERVAL_MS = Number(process.env.SSE_HEARTBEAT_INTERVAL_MS) || 25000;
+  const heartbeatTimer = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch {
+      cleanup();
+    }
+  }, HEARTBEAT_INTERVAL_MS);
 
-  // Send initial personalized state
-  if (room) {
-    const sanitized = sanitizeRoomForClient(room, client);
-    res.write(`data: ${JSON.stringify(sanitized)}\n\n`);
-  }
+  // Idempotent cleanup function executed when client disconnects
+  // Attached to both req and res ('close' and 'error') to handle all network termination scenarios
+  let isCleanedUp = false;
+  const cleanup = () => {
+    if (isCleanedUp) return;
+    isCleanedUp = true;
 
-  req.on('close', () => {
+    clearInterval(heartbeatTimer);
+
     if (sseClients[code]) {
       sseClients[code].delete(client);
 
@@ -1014,7 +1021,25 @@ app.get('/api/rooms/:code/stream', (req: Request, res: Response) => {
         }
       }
     }
-  });
+  };
+
+  req.on('close', cleanup);
+  res.on('close', cleanup);
+  req.on('error', cleanup);
+  res.on('error', cleanup);
+
+  // If a player connects, mark online
+  if (room && playerId && room.players[playerId]) {
+    room.players[playerId].isConnected = true;
+    room.players[playerId].lastActiveAt = Date.now();
+    broadcastRoom(code);
+  }
+
+  // Send initial personalized state
+  if (room) {
+    const sanitized = sanitizeRoomForClient(room, client);
+    res.write(`data: ${JSON.stringify(sanitized)}\n\n`);
+  }
 });
 
 // ---------------------------------------------------------------------------

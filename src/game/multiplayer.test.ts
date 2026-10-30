@@ -350,4 +350,119 @@ describe('Loup-Garou Master Multiplayer Test Suite', () => {
     assert.equal(data.player.isConnected, true);
     assert.equal(data.player.role, p.role);
   });
+
+  it('12. SSE Stream: Verifies simultaneous connections for Host and Players with proper proxy headers', async () => {
+    const p1 = players[0];
+    const p2 = players[1];
+
+    const hostUrl = `${baseUrl}/api/rooms/${roomCode}/stream?isHost=true&hostToken=${hostToken}`;
+    const p1Url = `${baseUrl}/api/rooms/${roomCode}/stream?playerId=${p1.id}&token=${p1.token}`;
+    const p2Url = `${baseUrl}/api/rooms/${roomCode}/stream?playerId=${p2.id}&token=${p2.token}`;
+
+    const connections: http.ClientRequest[] = [];
+    const receivedStates: Record<string, any> = {};
+
+    const connectClient = (url: string, id: string): Promise<void> => {
+      return new Promise<void>((resolve, reject) => {
+        const req = http.get(url, (res) => {
+          assert.equal(res.headers['content-type'], 'text/event-stream');
+          assert.equal(res.headers['x-accel-buffering'], 'no');
+          assert.equal(res.headers['cache-control'], 'no-cache');
+
+          res.on('data', (chunk: Buffer) => {
+            const text = chunk.toString();
+            if (text.startsWith('data: ')) {
+              receivedStates[id] = JSON.parse(text.replace(/^data: /, '').trim());
+              resolve();
+            }
+          });
+        });
+        connections.push(req);
+        req.on('error', (err) => {
+          if ((err as any).code !== 'ECONNRESET') reject(err);
+        });
+      });
+    };
+
+    // Open simultaneous connections
+    await Promise.all([
+      connectClient(hostUrl, 'host'),
+      connectClient(p1Url, p1.id),
+      connectClient(p2Url, p2.id),
+    ]);
+
+    assert.ok(receivedStates['host'], 'Host received initial state');
+    assert.ok(receivedStates[p1.id], 'Player 1 received initial state');
+    assert.ok(receivedStates[p2.id], 'Player 2 received initial state');
+
+    // Close all test connections cleanly
+    connections.forEach((req) => req.destroy());
+    await new Promise((r) => setTimeout(r, 100));
+  });
+
+  it('13. SSE Heartbeat: Verifies periodic ": ping\\n\\n" comment delivery and clean teardown', async () => {
+    // Set fast heartbeat for test environment
+    process.env.SSE_HEARTBEAT_INTERVAL_MS = '200';
+
+    const p = players[2];
+    const streamUrl = `${baseUrl}/api/rooms/${roomCode}/stream?playerId=${p.id}&token=${p.token}`;
+
+    let receivedInitialData = false;
+    let receivedPingComment = false;
+
+    await new Promise<void>((resolve, reject) => {
+      const req = http.get(streamUrl, (res) => {
+        assert.equal(res.headers['x-accel-buffering'], 'no');
+
+        res.on('data', (chunk: Buffer) => {
+          const text = chunk.toString();
+
+          if (text.startsWith('data: ')) {
+            receivedInitialData = true;
+          }
+
+          if (text.includes(': ping\n\n') || text.startsWith(': ping')) {
+            receivedPingComment = true;
+            // Verify heartbeat is an SSE comment starting with ':' and not a data event
+            assert.ok(!text.includes('data: : ping'), 'Heartbeat must not be a data event');
+            req.destroy();
+          }
+        });
+
+        res.on('close', () => {
+          resolve();
+        });
+
+        res.on('error', (err) => {
+          if ((err as any).code === 'ECONNRESET') {
+            resolve();
+          } else {
+            reject(err);
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        if ((err as any).code === 'ECONNRESET') {
+          resolve();
+        } else {
+          reject(err);
+        }
+      });
+    });
+
+    assert.equal(receivedInitialData, true, 'Initial SSE state should arrive');
+    assert.equal(receivedPingComment, true, 'Periodic : ping comment should arrive');
+
+    // Wait for server-side res.on('close') cleanup
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Reset env to default 25000ms
+    delete process.env.SSE_HEARTBEAT_INTERVAL_MS;
+
+    // Verify player is now marked disconnected on server
+    const checkRes = await fetch(`${baseUrl}/api/rooms/${roomCode}`);
+    const checkData = await checkRes.json();
+    assert.equal(checkData.room.players[p.id].isConnected, false);
+  });
 });
