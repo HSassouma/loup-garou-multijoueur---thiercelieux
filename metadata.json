@@ -1,0 +1,6 @@
+{
+  "name": "Loup-Garou Multijoueur - Thiercelieux",
+  "description": "Plateforme multijoueur temps réel du jeu des Loups-Garous de Thiercelieux avec écran meneur vidéoprojeté, QR code, interface joueur mobile, narrateur vocal, et bots de test.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

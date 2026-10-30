@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #0c0d14;
+    color: #e2e8f0;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, .font-gothic {
+    font-family: 'Cinzel', serif;
+    letter-spacing: 0.03em;
+  }
+}
+
+/* 3D Card Flip styles */
+.perspective-1000 {
+  perspective: 1000px;
+}
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+/* Atmospheric effects */
+.night-sky-gradient {
+  background: radial-gradient(circle at 50% 20%, #1a1e36 0%, #0c0d17 70%, #06070a 100%);
+}
+
+.blood-moon-glow {
+  box-shadow: 0 0 50px -10px rgba(220, 38, 38, 0.35);
+}
+
+.gold-glow {
+  box-shadow: 0 0 40px -10px rgba(234, 179, 8, 0.3);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0f111a;
+}
+::-webkit-scrollbar-thumb {
+  background: #272d45;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3b4366;
+}
